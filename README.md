@@ -1,3 +1,4 @@
 # Species-Habitat-NVC-Associations
 Repo for crosswalking GAP species habitat associations with NVC categories (e.g. macrogroups)
+
 Python code in these analyses relate GAP species habitat associations and NVC classification hierarchy. In order to conduct the analyses, it was necessary to utilize the GAP analytic database (a Microsoft SQL server database created by Linda Schueck at USGS in Boise, ID) and a wildlife habitat relationship database (WHRdb). Copies of both the GAP analytic and WHRdb databases reside on servers at the BaSIC lab at NC State University. The analyses would not be possible without connecting to one or both of these databases unless at some time in the future the data are transferred to an online, open source system. If and when that occurs, the code in this repository will need to be re-written. 

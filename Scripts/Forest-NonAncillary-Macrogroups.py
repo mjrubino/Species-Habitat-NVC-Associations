@@ -92,72 +92,99 @@ cur, conn = DBConnection('GapVert_48_2001')
 # Make an SQL that gets data for species who have at least one forested map unit
 # and have NO ancillary data constraints
 sqlWHR = """WITH
-NonAncillary AS
-(SELECT	strSpeciesModelCode,
-		ysnHandModel,
-		ysnHydroFW,
-		ysnHydroOW,
-		ysnHydroWV,
-		ysnHydroSprings,
-		strSalinity,
-		strStreamVel,
-		intFlowAccMin,
-		intFlowAccMax,
-		strEdgeType,
-		intEdgeEcoWidth,
-		strUseForInt,
-		strForIntBuffer,
-		cbxContPatch,
-		cbxNonCPatch,
-		intContPatchSize,
-		intContPatchBuffIn,
-		intContPatchBuffFrom,
-		intNonCPatchPerc,
-		intNonCPatchArea,
-		intPercentCanopy,
-		intAuxBuff,
-		strAvoid,
-		ysnUrbanExclude,
-		ysnUrbanInclude,
-		intElevMin,
-		intElevMax,
-		intSlopeMin,
-		intSlopeMax
-FROM tblModelAncillary
-WHERE	strSpeciesModelCode Not Like '%0' AND
-		ysnHandModel = 0 AND
-		ysnHydroFW = 0 AND 
-		ysnHydroOW = 0 AND 
-		ysnHydroWV = 0 AND 
-		ysnHydroSprings = 0 AND 
-		strSalinity Is Null AND 
-		strStreamVel Is Null AND 
-		intFlowAccMin Is Null AND 
-		intFlowAccMax Is Null AND 
-		strEdgeType Is Null AND 
-		intEdgeEcoWidth Is Null AND 
-		strUseForInt Is Null AND 
-		strForIntBuffer Is Null AND 
-		cbxContPatch = 0 AND 
-		cbxNonCPatch = 0 AND 
-		intContPatchSize Is Null AND 
-		intContPatchBuffIn Is Null AND 
-		intContPatchBuffFrom Is Null AND 
-		intNonCPatchPerc Is Null AND 
-		intNonCPatchArea Is Null AND 
-		intPercentCanopy Is Null AND 
-		intAuxBuff Is Null AND 
-		strAvoid Is Null AND 
-		ysnUrbanExclude = 0 AND 
-		ysnUrbanInclude = 0 AND 
-		intElevMin Is Null AND 
-		intElevMax Is Null AND 
-		intSlopeMin Is Null AND 
-		intSlopeMax Is Null
-),
+-- Build table of species seasonal/regional use of ancillary data
+smAnc AS (
+	SELECT	i.strUC AS strUC
+		  ,	a.strSpeciesModelCode AS strSpeciesModelCode
+		  , CAST(ysnHandModel AS int) AS intHandModel
+		  , CAST(ysnHydroFW AS int) AS intHydroFW
+		  , CAST(ysnHydroOW AS int) AS intHydroOW
+		  , CAST(ysnHydroWV AS int) AS intHydroWV
+		  , CASE
+				WHEN (strSalinity Is Null OR strSalinity = 'All Types') THEN 0
+				ELSE 1
+			END AS intSalinity
+		  , CASE
+				WHEN (strStreamVel Is Null OR strStreamVel = 'All Types') THEN 0
+				ELSE 1
+			END AS intStreamVel
+		  , CASE
+				WHEN strEdgeType Is Null THEN 0
+				ELSE 1
+			END AS intEdgeType
+		  , CASE
+				WHEN strUseForInt Is Null THEN 0
+				ELSE 1
+			END AS intUseForInt
+		  , CAST(cbxContPatch AS int) AS intContPatch
+		  ,	CAST(cbxNonCPatch AS int) AS intNonCPatch
+		  , CASE
+				WHEN intPercentCanopy Is Null THEN 0
+				ELSE 1
+			END AS intPercentCanopy 
+		  , CASE
+				WHEN intAuxBuff Is Null THEN 0
+				ELSE 1
+			END AS intAuxBuff
+		  , CASE
+				WHEN strAvoid Is Null THEN 0
+				ELSE 1
+			END AS intAvoid
+		  ,	CAST(ysnUrbanExclude AS int) AS intUrbanExclude
+		  ,	CAST(ysnUrbanInclude AS int) AS intUrbanInclude
+		  , CASE
+				WHEN (intElevMin Is Null OR intElevMin < 1) THEN 0
+				ELSE 1
+			END AS intElevMin
+		  , CASE
+				WHEN intElevMax Is Null THEN 0
+				ELSE 1
+			END AS intElevMax
 
+	FROM GapVert_48_2001.dbo.tblModelAncillary a 
+		 INNER JOIN GapVert_48_2001.dbo.tblModelInfo i
+			ON a.strSpeciesModelCode = i.strSpeciesModelCode
+	WHERE	i.ysnIncludeSubModel = 1 
+	),
 
+/*
+	Identify species ancillary data use across seasonal/regional submodels.
+	This sums up how many submodels have at least one ancillary parameter selection.
+	Return only species whose submodel ancillary tally total is 0 meaning NO
+	submodels use ANY ancillary parameter
+*/
+NonAncillary AS (
+	SELECT
+		strUC
+	FROM smAnc
+	GROUP BY strUC
+	HAVING
+		SUM ( intHandModel +
+			  intHydroFW +
+			  intHydroOW +
+			  intHydroWV +
+			  intSalinity +
+			  intStreamVel +
+			  intEdgeType +
+			  intUseForInt +
+			  intContPatch +
+			  intNonCPatch +
+			  intPercentCanopy +
+			  intAuxBuff +
+			  intAvoid +
+			  intUrbanExclude +
+			  intUrbanInclude +
+			  intElevMin +
+			  intElevMax ) = 0
 
+	),
+
+/*
+	Pull out species whose models include at least one map unit selection
+	that is a forested map unit.
+	NOTE: This criterion is only for primary map units. Secondary map units are ignored
+	Also, include only those species for whom there are valid submodels.
+*/
 ForestSelected AS 
 (SELECT
 		tblMapUnitDesc.intLSGapMapCode,
@@ -165,7 +192,8 @@ ForestSelected AS
 		tblMapUnitDesc.intForest,
 		tblSppMapUnitPres.strSpeciesModelCode,
 		tblSppMapUnitPres.ysnPres,
-		tblModelInfo.ysnIncludeSubModel
+		tblModelInfo.ysnIncludeSubModel,
+		tblModelInfo.strUC
 FROM 
 		tblMapUnitDesc FULL JOIN tblSppMapUnitPres 
 		ON tblMapUnitDesc.intLSGapMapCode = tblSppMapUnitPres.intLSGapMapCode
@@ -177,52 +205,66 @@ WHERE
 		tblSppMapUnitPres.strSpeciesModelCode Not Like '%m_' AND
 		tblModelInfo.ysnIncludeSubModel = 1),
 
-
+/*
+	Pull out the scientific and common names from the taxa table
+*/
 Taxa AS
 (SELECT strUC, strSciName, strComName
 FROM tblTaxa)
 
+/*
+	Combine the non-ancillary, at least one forested map unit selection, and
+	corresponding taxa scientific name and common name sub-queries into final output
+
+*/
+
+
 SELECT 	Taxa.strSciName AS ScientificName,
 		Taxa.strComName AS CommonName,
 		Taxa.strUC AS SC,
-		NonAncillary.strSpeciesModelCode AS SMC,
+		strSpeciesModelCode AS SMC,
 		ForestSelected.intLSGapMapCode AS MUCode,
 		ForestSelected.strLSGapName AS MUName,
 		CASE 
 			WHEN 
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 8, 1)='y'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 8, 1)='y'
 			  THEN 'year-round'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 8, 1)='s'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 8, 1)='s'
 			  THEN 'summer'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 8, 1)='w'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 8, 1)='w'
 			  THEN 'winter'
 		END AS Season,
 		
 		CASE 
 			WHEN 
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='1'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='1'
 			  THEN 'Northwest'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='2'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='2'
 			  THEN 'Upper Midwest'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='3'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='3'
 			  THEN 'Northeast'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='4'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='4'
 			  THEN 'Southwest'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='5'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='5'
 			  THEN 'Great Plains'
 			WHEN
-			  SUBSTRING(NonAncillary.strSpeciesModelCode, 9, 1)='6'
+			  SUBSTRING(ForestSelected.strSpeciesModelCode, 9, 1)='6'
 			  THEN 'Southeast'
 		END AS Region
 
-FROM NonAncillary INNER JOIN ForestSelected ON NonAncillary.strSpeciesModelCode = ForestSelected.strSpeciesModelCode
-				  INNER JOIN Taxa ON SUBSTRING(NonAncillary.strSpeciesModelCode, 1, 6) = Taxa.strUC"""
+FROM
+	ForestSelected INNER JOIN NonAncillary
+	ON
+	ForestSelected.strUC = NonAncillary.strUC
+	INNER JOIN Taxa
+	ON ForestSelected.strUC = Taxa.strUC"""
+
 # Make a dataframe of the forest/non-ancillary species map unit associations
 dfSppMUs = psql.read_sql(sqlWHR, conn)
 
